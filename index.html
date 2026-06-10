@@ -1,0 +1,835 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>文獻小老師 ｜ AI 假文獻偵測 · 參考文獻來源核對</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Crect width='48' height='48' rx='11' fill='%23F4F2EE'/%3E%3Ccircle cx='24' cy='24' r='15' fill='none' stroke='%235C7799' stroke-width='1.6'/%3E%3Ccircle cx='24' cy='24' r='11.5' fill='none' stroke='%235C7799' stroke-width='.9'/%3E%3Cpath d='M24 18 C21 16 17 16 14.5 17.5 L14.5 30 C17 28.5 21 28.5 24 30.5' fill='none' stroke='%235C7799' stroke-width='1.5' stroke-linejoin='round'/%3E%3Cpath d='M24 18 C27 16 31 16 33.5 17.5 L33.5 30 C31 28.5 27 28.5 24 30.5' fill='none' stroke='%235C7799' stroke-width='1.5' stroke-linejoin='round'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=Noto+Serif+TC:wght@500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<style>
+  :root{
+    --blue:#5C7799; --blue-d:#4A6485; --blue-l:#7E96B3; --blue-soft:#AEBFD2;
+    --sage:#7E907E; --ochre:#BC9A63; --clay:#B0857B;       /* 莫蘭迪狀態色：真實/待確認/疑似 */
+    --green:#7E907E; --amber:#BC9A63; --red:#B0857B;        /* 對應舊變數名 */
+    --bg:#F4F2EE; --card:#FFFFFF; --line:#E6E2DA;
+    --ink:#34404F; --body:#5E6B7A; --muted:#94A0AE;
+    --serif:"Noto Serif TC",Georgia,"Songti TC",serif;
+    --shadow:0 1px 2px rgba(52,64,79,.04), 0 12px 28px -18px rgba(52,64,79,.16);
+  }
+  *{box-sizing:border-box}
+  body{font-family:"Noto Sans TC","Microsoft JhengHei","微軟正黑體",-apple-system,system-ui,sans-serif;
+    margin:0;background:var(--bg);color:var(--body);line-height:1.7;-webkit-font-smoothing:antialiased;
+    text-rendering:optimizeLegibility}
+
+  /* ===== Hero（淺色編輯風） ===== */
+  header.hero{position:relative;text-align:center;padding:52px 20px 40px;
+    background:linear-gradient(180deg,#FBFAF7 0%, var(--bg) 100%);border-bottom:1px solid var(--line)}
+  .hero-logo{width:96px;height:96px;display:block;margin:0 auto 4px}
+  .hero h1{margin:6px 0 14px;font-family:var(--serif);font-size:38px;font-weight:700;
+    color:var(--ink);letter-spacing:6px;padding-left:6px}
+  .hero .eyebrow{display:flex;align-items:center;justify-content:center;gap:12px;
+    color:var(--blue);font-size:12.5px;letter-spacing:3px;font-weight:500;margin-bottom:4px}
+  .hero .eyebrow::before,.hero .eyebrow::after{content:"";width:26px;height:1px;background:var(--blue-soft)}
+  .hero .tag{margin:0 auto;max-width:600px;font-size:15px;color:var(--body);line-height:1.85}
+  .hero .sources{margin-top:18px;color:var(--muted);font-size:12px;letter-spacing:1.5px}
+
+  .wrap{max-width:880px;margin:0 auto;padding:32px 20px 0;position:relative}
+  .panel{background:var(--card);border:1px solid var(--line);border-radius:14px;
+    padding:26px;margin-bottom:18px;box-shadow:var(--shadow)}
+  .panel label{color:var(--ink)}
+  textarea{width:100%;min-height:200px;border:1px solid var(--line);border-radius:10px;
+    padding:14px;font-size:14px;font-family:inherit;color:var(--ink);resize:vertical;
+    transition:border-color .15s, box-shadow .15s;background:#FCFBF9}
+  textarea:focus{outline:none;border-color:var(--blue-l);box-shadow:0 0 0 4px rgba(126,150,179,.16)}
+  textarea::placeholder{color:#b6bcc4}
+  .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:16px}
+  button{background:var(--blue);color:#fff;border:0;border-radius:9px;padding:12px 24px;
+    font-size:15px;font-weight:500;cursor:pointer;font-family:inherit;letter-spacing:.5px;
+    transition:background .15s, transform .12s}
+  button:hover{background:var(--blue-d);transform:translateY(-1px)}
+  button:active{transform:translateY(0)}
+  button:disabled{opacity:.45;cursor:not-allowed;transform:none}
+  button.ghost{background:#fff;color:var(--blue-d);border:1px solid var(--blue-soft)}
+  button.ghost:hover{background:#F3F5F8;border-color:var(--blue-l)}
+  .hint{font-size:13px;color:var(--muted)}
+
+  /* ===== 摘要帶（取代一格格） ===== */
+  .summary{margin-bottom:20px}
+  .sumbar{display:flex;align-items:center;flex-wrap:wrap;gap:8px 22px;
+    background:var(--card);border:1px solid var(--line);border-radius:12px;
+    padding:16px 22px;box-shadow:var(--shadow)}
+  .sumbar .total{font-family:var(--serif);font-size:15px;color:var(--ink);font-weight:600}
+  .sumbar .total b{font-size:22px;margin:0 3px}
+  .sumbar .divider{width:1px;height:22px;background:var(--line)}
+  .sumbar .seg{display:flex;align-items:center;gap:7px;font-size:14px;color:var(--body)}
+  .sumbar .seg b{font-size:17px;color:var(--ink);font-weight:700}
+  .sumbar .dot{width:9px;height:9px;border-radius:50%}
+  .dot.real{background:var(--sage)} .dot.warn{background:var(--ochre)} .dot.fake{background:var(--clay)}
+
+  .item{border:1px solid var(--line);border-left-width:4px;border-radius:12px;
+    padding:16px 18px;margin-bottom:12px;background:#fff;box-shadow:var(--shadow);
+    animation:rise .35s ease both}
+  @keyframes rise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+  .item.real{border-left-color:var(--sage)}
+  .item.warn{border-left-color:var(--ochre)}
+  .item.fake{border-left-color:var(--clay)}
+  .item.pending{border-left-color:var(--blue-soft)}
+  .badge{display:inline-flex;align-items:center;font-size:12.5px;font-weight:500;padding:4px 13px;
+    border-radius:999px;margin-bottom:9px;letter-spacing:.5px}
+  .badge.real{background:#EBEFE9;color:#5C6E5C}
+  .badge.warn{background:#F5EDDD;color:#8A6E3C}
+  .badge.fake{background:#F2E5E1;color:#8A5E54}
+  .badge.pending{background:#EEF1F4;color:var(--muted)}
+  .ref-text{font-size:14px;color:var(--ink);margin:4px 0 8px;line-height:1.65}
+  .reason{font-size:13px;color:var(--body);margin:6px 0}
+  .reason b{color:var(--ink)}
+  .found{font-size:13px;background:#F8F7F3;border:1px solid var(--line);
+    border-radius:9px;padding:10px 13px;margin-top:8px;line-height:1.65}
+  .found a{color:var(--blue-d);text-decoration:none;font-weight:500}
+  .found a:hover{text-decoration:underline}
+  .prog{height:6px;background:#E6E2DA;border-radius:999px;overflow:hidden;margin-top:16px;display:none}
+  .prog.on{display:block} .prog>div{height:100%;background:var(--blue);width:0;transition:width .25s}
+  details summary{cursor:pointer;font-size:13px;color:var(--muted);margin-top:6px}
+  .note{background:#FAF6EC;border:1px solid #E9DEC3;border-radius:12px;padding:14px 16px;
+    font-size:13px;color:#7C6534;margin-top:14px;line-height:1.8}
+  code{background:#EEF1F4;color:var(--blue-d);padding:1px 6px;border-radius:5px;font-size:12px;font-family:ui-monospace,Menlo,Consolas,monospace}
+
+  /* ===== Footer ===== */
+  .site-footer{background:#2E3A4A;color:#C2CAD4;margin-top:46px;
+    font-size:14px;line-height:1.7}
+  .foot-wrap{max-width:880px;margin:0 auto;padding:40px 20px 24px}
+  .foot-top{display:flex;gap:40px;flex-wrap:wrap;justify-content:space-between}
+  .foot-brand{flex:1;min-width:240px;max-width:360px}
+  .foot-logo{font-family:var(--serif);font-size:19px;font-weight:600;color:#fff;margin-bottom:12px;
+    display:flex;align-items:center;gap:9px;letter-spacing:2px}
+  .foot-brand p{margin:0 0 10px;color:#97A3B1;font-size:13px}
+  .foot-badge{display:inline-block;background:rgba(174,191,210,.15);color:#AEBFD2;
+    border:1px solid rgba(174,191,210,.3);border-radius:999px;
+    padding:3px 12px;font-size:12px;font-weight:500}
+  .foot-cols{display:flex;gap:40px;flex-wrap:wrap}
+  .foot-col{display:flex;flex-direction:column;min-width:140px}
+  .foot-col h4{color:#fff;font-size:12.5px;margin:0 0 13px;font-weight:500;
+    letter-spacing:2px;opacity:.7}
+  .foot-col a{color:#C2CAD4;text-decoration:none;padding:4px 0;font-size:13px;transition:color .15s}
+  .foot-col a:hover{color:#AEBFD2}
+  .foot-mini{color:#7E8A98;font-size:12px;margin-top:8px}
+  .foot-note{border-top:1px solid rgba(255,255,255,.08);margin-top:26px;padding-top:18px;
+    font-size:12.5px;color:#8E9AAA}
+  .foot-note b{color:#C2CAD4}
+  .foot-bottom{display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;
+    margin-top:18px;padding-top:14px;border-top:1px solid rgba(255,255,255,.08);
+    font-size:12px;color:#7c9396}
+  @media(max-width:640px){
+    .foot-top{flex-direction:column;gap:28px}
+    .foot-bottom{flex-direction:column}
+  }
+
+  /* ===== 標頭關於連結 ===== */
+  header{position:relative}
+  .header-about{position:absolute;top:20px;right:22px;color:var(--blue-d);
+    text-decoration:none;font-size:13.5px;letter-spacing:1px;border:1px solid var(--blue-soft);
+    border-radius:999px;padding:5px 16px;transition:all .15s}
+  .header-about:hover{background:var(--blue);color:#fff;border-color:var(--blue)}
+
+  /* ===== 關於 彈窗 ===== */
+  .modal-overlay{display:none;position:fixed;inset:0;background:rgba(15,42,46,.6);
+    z-index:50;padding:24px;overflow-y:auto}
+  .modal-overlay.open{display:flex;align-items:flex-start;justify-content:center}
+  .modal-card{background:#fff;border-radius:16px;max-width:640px;width:100%;
+    margin:auto;padding:32px 34px;box-shadow:0 20px 60px rgba(0,0,0,.3);position:relative}
+  .modal-close{position:absolute;top:16px;right:18px;background:none;border:0;
+    font-size:30px;line-height:1;color:var(--muted);cursor:pointer;padding:0;width:auto}
+  .modal-close:hover{color:var(--ink)}
+  .modal-card h2{margin:0 0 14px;font-size:23px;color:var(--blue-d);font-family:var(--serif);font-weight:700}
+  .modal-card h3{margin:22px 0 6px;font-size:15px;color:var(--ink)}
+  .modal-lead{font-size:15px;color:var(--ink);margin:0}
+  .modal-card p{font-size:14px;color:#475569;margin:6px 0}
+  .modal-card ol{font-size:14px;color:#475569;margin:6px 0;padding-left:22px}
+  .modal-card ol li{margin:6px 0}
+  .modal-card b{color:var(--ink)}
+  .modal-foot{display:flex;justify-content:space-between;align-items:center;
+    flex-wrap:wrap;gap:10px;margin-top:26px;padding-top:18px;
+    border-top:1px solid var(--line);font-size:12px;color:var(--muted)}
+
+  /* ===== FINORA 風格彈窗（頂列標題 + 底部按鈕） ===== */
+  .modal-card.modal-bar{padding:0;overflow:hidden;max-width:560px}
+  .modal-head{display:flex;justify-content:space-between;align-items:center;
+    padding:20px 26px;border-bottom:1px solid var(--line);font-size:18px;font-weight:600;color:var(--ink);font-family:var(--serif)}
+  .modal-x{background:none;border:0;font-size:24px;line-height:1;color:var(--muted);
+    cursor:pointer;padding:0;width:auto}
+  .modal-x:hover{color:var(--ink)}
+  .modal-body{padding:26px}
+  .modal-bar-foot{display:flex;justify-content:flex-end;padding:16px 26px;
+    border-top:1px solid var(--line)}
+  .btn-dark{background:#1e293b;color:#fff;border:0;border-radius:10px;
+    padding:10px 22px;font-size:14px;font-weight:600;cursor:pointer}
+  .btn-dark:hover{background:#0f172a}
+  /* 聯絡我們 */
+  .contact-body{text-align:center}
+  .contact-icon{width:64px;height:64px;margin:6px auto 18px;border-radius:16px;
+    background:#EAEEF3;color:var(--blue);display:flex;align-items:center;justify-content:center;font-size:28px}
+  .contact-body p{color:var(--body);font-size:15px;margin:0 0 22px}
+  .contact-btn{display:block;background:var(--blue);
+    color:#fff;text-decoration:none;border-radius:11px;padding:15px;
+    font-size:16px;font-weight:500;letter-spacing:.5px;transition:background .15s}
+  .contact-btn:hover{background:var(--blue-d)}
+  /* 法律條文 */
+  .legal-body{font-size:14px;color:#475569;line-height:1.75;max-height:62vh;overflow-y:auto}
+  .legal-body p{margin:0 0 12px}
+  .legal-body ul{margin:0 0 12px;padding-left:20px}
+  .legal-body li{margin:8px 0}
+  .legal-body b{color:var(--ink)}
+  .legal-updated{color:var(--muted);font-size:12.5px}
+</style>
+</head>
+<body>
+<header class="hero">
+  <a href="#about" data-modal="about" class="header-about">關於</a>
+  <svg class="hero-logo" viewBox="0 0 104 116" fill="none" stroke="#5C7799" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <!-- 雙圈 -->
+    <circle cx="52" cy="50" r="37" stroke-width="1.4"/>
+    <circle cx="52" cy="50" r="32" stroke-width="0.8" opacity=".55"/>
+    <!-- 攤開書本 -->
+    <g stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M52 39 C46 35 38 35 33 38 L33 60 C38 57 46 57 52 61"/>
+      <path d="M52 39 C58 35 66 35 71 38 L71 60 C66 57 58 57 52 61"/>
+      <line x1="52" y1="39" x2="52" y2="61"/>
+    </g>
+    <g stroke-width="0.9" opacity=".5" stroke-linecap="round">
+      <path d="M38 43 C42 42 46 42 49 43.5"/>
+      <path d="M38 48 C42 47 46 47 49 48.5"/>
+      <path d="M55 43.5 C58 42 62 42 66 43"/>
+      <path d="M55 48.5 C58 47 62 47 66 48"/>
+    </g>
+    <!-- 兩側月桂葉 -->
+    <g fill="#5C7799" stroke="none" opacity=".9">
+      <ellipse cx="38" cy="74" rx="1.7" ry="3.6" transform="rotate(38 38 74)"/>
+      <ellipse cx="34.5" cy="69.5" rx="1.6" ry="3.3" transform="rotate(22 34.5 69.5)"/>
+      <ellipse cx="32.5" cy="64.5" rx="1.5" ry="3" transform="rotate(8 32.5 64.5)"/>
+      <ellipse cx="66" cy="74" rx="1.7" ry="3.6" transform="rotate(-38 66 74)"/>
+      <ellipse cx="69.5" cy="69.5" rx="1.6" ry="3.3" transform="rotate(-22 69.5 69.5)"/>
+      <ellipse cx="71.5" cy="64.5" rx="1.5" ry="3" transform="rotate(-8 71.5 64.5)"/>
+    </g>
+    <!-- 小核對勾 -->
+    <path d="M47 28.5 L50.5 32 L57 25" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+  </svg>
+  <div class="eyebrow">文獻真偽核對</div>
+  <h1>文獻小老師</h1>
+  <p class="tag">把任何文件的參考文獻整段貼上或上傳，逐筆比對國際學術資料庫，<br>揪出 AI 生成內容裡捏造的假引用。</p>
+  <div class="sources">CrossRef　·　PubMed　·　OpenAlex　·　純前端不上傳</div>
+</header>
+
+<div class="wrap">
+  <div class="panel">
+    <label style="font-weight:600;display:block;margin-bottom:8px">貼上參考文獻（一筆一行，或整段貼上皆可）</label>
+    <textarea id="input" placeholder="範例：
+American Nurses Association. (2021). Nursing: Scope and standards of practice. Nursebooks.org.
+Smith, J. A., & Lee, K. (2020). Effects of early mobilization on ICU patients. Journal of Clinical Nursing, 29(5), 812-820. https://doi.org/10.1111/jocn.15123
+李美玲、王大同（2019）。住院病人跌倒預防之臨床照護。護理雜誌，66(3)，45-53。"></textarea>
+    <div class="row">
+      <button id="run">🔍 開始核對</button>
+      <button id="upload" class="ghost">📄 上傳作業（Word/PDF）</button>
+      <input type="file" id="file" accept=".docx,.pdf,.txt" style="display:none">
+      <button id="sample" class="ghost">載入示範資料</button>
+      <button id="copy" class="ghost" style="display:none">📋 複製報告</button>
+      <span class="hint">不需安裝、不需帳號；資料只在你的瀏覽器處理，不會上傳。</span>
+    </div>
+    <div id="upmsg" class="hint" style="margin-top:8px"></div>
+    <div class="prog" id="prog"><div></div></div>
+  </div>
+
+  <div id="out"></div>
+
+  <div class="note">
+    <b>使用提醒：</b>核對資料庫為 CrossRef + OpenAlex + PubMed（含部分中文期刊），能可靠驗證有 DOI/PMID 的文獻及英文期刊。可直接「上傳整份 Word/PDF 文件」自動抽出參考文獻批次核對。
+    <b>台灣繁體中文期刊</b>（華藝 CEPS、台灣期刊論文索引收錄）三大庫多半查不到，會標為「⚠️ 需人工確認」——這不代表造假，請另至
+    <a href="https://www.airitilibrary.com" target="_blank">華藝線上圖書館</a> 或
+    <a href="https://scholar.google.com" target="_blank">Google Scholar</a> 人工核對。
+    判定「❌ 查無此文獻」者，建議要求學生提供原文 PDF 或可點擊的連結。
+  </div>
+</div>
+
+<footer class="site-footer">
+  <div class="foot-wrap">
+    <div class="foot-top">
+      <div class="foot-brand">
+        <div class="foot-logo">
+          <svg viewBox="0 0 104 96" width="32" height="30" fill="none" stroke="#AEBFD2" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <circle cx="52" cy="48" r="37" stroke-width="1.4"/>
+            <circle cx="52" cy="48" r="32" stroke-width="0.8" opacity=".55"/>
+            <g stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M52 39 C46 35 38 35 33 38 L33 60 C38 57 46 57 52 61"/>
+              <path d="M52 39 C58 35 66 35 71 38 L71 60 C66 57 58 57 52 61"/>
+              <line x1="52" y1="39" x2="52" y2="61"/>
+            </g>
+            <g fill="#AEBFD2" stroke="none" opacity=".9">
+              <ellipse cx="38" cy="74" rx="1.7" ry="3.6" transform="rotate(38 38 74)"/>
+              <ellipse cx="34.5" cy="69.5" rx="1.6" ry="3.3" transform="rotate(22 34.5 69.5)"/>
+              <ellipse cx="66" cy="74" rx="1.7" ry="3.6" transform="rotate(-38 66 74)"/>
+              <ellipse cx="69.5" cy="69.5" rx="1.6" ry="3.3" transform="rotate(-22 69.5 69.5)"/>
+            </g>
+            <path d="M47 28.5 L50.5 32 L57 25" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          文獻小老師
+        </div>
+        <p>參考文獻真偽核對工具。AI 生成的報告常附上看似正確、其實不存在的引用；貼上或上傳文件即可逐筆查證真偽。</p>
+      </div>
+
+      <div class="foot-cols">
+        <div class="foot-col">
+          <h4>核對資料來源</h4>
+          <a href="https://www.crossref.org" target="_blank">CrossRef</a>
+          <a href="https://pubmed.ncbi.nlm.nih.gov" target="_blank">PubMed</a>
+          <a href="https://openalex.org" target="_blank">OpenAlex</a>
+          <a href="https://www.airitilibrary.com" target="_blank">華藝線上圖書館</a>
+        </div>
+        <div class="foot-col">
+          <h4>關於</h4>
+          <a href="#about" data-modal="about">關於文獻小老師</a>
+          <a href="#contact" data-modal="contact">聯絡我們</a>
+          <a href="#privacy" data-modal="privacy">隱私權政策</a>
+          <a href="#terms" data-modal="terms">服務條款</a>
+          <span class="foot-mini">資料只在你的瀏覽器處理，不會上傳伺服器。</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="foot-note">
+      <b>免責聲明：</b>本工具為輔助核對，<b>非最終判定依據</b>。它能可靠驗證有 DOI/PMID 的文獻與英文期刊；台灣繁體中文期刊、教科書、研討會論文等多半不在國際資料庫，標為「⚠️ 需人工確認」並不代表造假，請務必人工複查後再認定學術不誠信。
+    </div>
+
+    <div class="foot-bottom">
+      <span>© 2026 FINORA · 文獻小老師</span>
+      <span>為學術誠信而做 · Made with ❤️ by Ali</span>
+    </div>
+  </div>
+</footer>
+
+<!-- 關於 彈窗 -->
+<div id="about" class="modal-overlay">
+  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="about-title">
+    <button class="modal-close modal-dismiss" aria-label="關閉">×</button>
+    <h2 id="about-title">關於文獻小老師</h2>
+    <p class="modal-lead">一個免費的<b>參考文獻真偽核對工具</b>。AI 生成的學術內容經常附上格式正確、卻根本不存在的「假文獻」——本站把你貼上或上傳的引用，逐筆拿去比對國際學術資料庫，標出哪些是真的、哪些查無、哪些需要人工確認。</p>
+
+    <h3>適合誰用</h3>
+    <p>任何需要查證引用真偽的人：批改報告、撰寫論文、投稿前自我檢查、編輯審稿，或單純想確認一篇引用到底存不存在。</p>
+
+    <h3>怎麼運作（三步驟）</h3>
+    <ol>
+      <li><b>查號</b>：有 DOI 或 PMID 的，直接到 CrossRef／PubMed 查這個編號真的存在、且作者年份對得上。</li>
+      <li><b>比對標題</b>：沒有編號的，到 CrossRef → OpenAlex → PubMed 搜尋標題，計算吻合度。</li>
+      <li><b>人工查證</b>：三大庫都查不到的，附上華藝、Google Scholar 一鍵查證連結，5 秒完成複查。</li>
+    </ol>
+
+    <h3>隱私</h3>
+    <p>純前端工具，你貼上或上傳的文件<b>只在自己的瀏覽器處理，不會上傳任何伺服器</b>，核對完關掉分頁即不留痕跡。</p>
+
+    <h3>誠實的限制</h3>
+    <p>國際資料庫對<b>英文期刊與有 DOI/PMID 的文獻</b>最準。中文期刊、書籍、研討會論文多半不在其中，會標為「⚠️ 需人工確認」，<b>這不代表造假</b>。本工具是輔助核對，<b>非學術不誠信的最終判定依據</b>，請人工複查後再認定。</p>
+
+    <div class="modal-foot">
+      <span>由 Ali 開發</span>
+      <span>© 2026 FINORA</span>
+    </div>
+  </div>
+</div>
+
+<!-- 聯絡我們 彈窗 -->
+<div id="contact" class="modal-overlay">
+  <div class="modal-card modal-bar" role="dialog" aria-modal="true">
+    <div class="modal-head"><span>聯絡我們</span><button class="modal-x modal-dismiss" aria-label="關閉">×</button></div>
+    <div class="modal-body contact-body">
+      <div class="contact-icon">📩</div>
+      <p>功能建議、問題回報，或分享使用心得，<br>都歡迎來信！</p>
+      <a class="contact-btn" href="mailto:service@finora.life">✈ service@finora.life</a>
+    </div>
+    <div class="modal-bar-foot"><button class="btn-dark modal-dismiss">我瞭解了</button></div>
+  </div>
+</div>
+
+<!-- 隱私權政策 彈窗 -->
+<div id="privacy" class="modal-overlay">
+  <div class="modal-card modal-bar" role="dialog" aria-modal="true">
+    <div class="modal-head"><span>隱私權政策</span><button class="modal-x modal-dismiss" aria-label="關閉">×</button></div>
+    <div class="modal-body legal-body">
+      <p class="legal-updated">最後更新：2026 年 6 月</p>
+      <p>「文獻小老師」非常重視你的隱私。本工具為<b>純前端網頁</b>，運作方式如下：</p>
+      <ul>
+        <li><b>不上傳、不儲存：</b>你貼上或上傳的文件內容，只在你自己的瀏覽器本機處理，<b>不會上傳或儲存到任何伺服器</b>。關閉分頁後即從記憶體清除。</li>
+        <li><b>核對查詢：</b>進行比對時，工具會把「參考文獻的文字片段」傳送到第三方學術資料庫（CrossRef、PubMed、OpenAlex）查詢。僅傳送查詢所需的文獻字串，<b>不含任何能識別你身分的資訊</b>。</li>
+        <li><b>無追蹤：</b>本站不使用 cookie、不放置追蹤碼、不設帳號、不收集個人資料。</li>
+        <li><b>第三方：</b>上述資料庫各有其隱私政策，查詢行為受其規範。</li>
+      </ul>
+      <p>如對隱私有任何疑問，歡迎透過「聯絡我們」來信。</p>
+    </div>
+    <div class="modal-bar-foot"><button class="btn-dark modal-dismiss">我瞭解了</button></div>
+  </div>
+</div>
+
+<!-- 服務條款 彈窗 -->
+<div id="terms" class="modal-overlay">
+  <div class="modal-card modal-bar" role="dialog" aria-modal="true">
+    <div class="modal-head"><span>服務條款</span><button class="modal-x modal-dismiss" aria-label="關閉">×</button></div>
+    <div class="modal-body legal-body">
+      <p class="legal-updated">最後更新：2026 年 6 月</p>
+      <p>使用「文獻小老師」即表示你同意以下條款：</p>
+      <ul>
+        <li><b>免費與現狀：</b>本工具免費提供，並以「<b>現狀</b>」（as-is）提供，不保證核對結果完全正確或完整。</li>
+        <li><b>僅供輔助：</b>核對結果<b>僅供參考</b>，並非學術不誠信、抄襲或造假的最終判定依據。任何認定前，請務必人工複查原始文獻。</li>
+        <li><b>免責：</b>對於因使用本工具之結果所生之任何決定或後果，開發者不承擔法律責任。</li>
+        <li><b>合理使用：</b>請勿濫用或自動化發送大量請求，以免影響第三方資料庫的服務穩定。</li>
+        <li><b>條款更新：</b>本條款得隨時修訂，恕不另行個別通知。</li>
+      </ul>
+    </div>
+    <div class="modal-bar-foot"><button class="btn-dark modal-dismiss">我瞭解了</button></div>
+  </div>
+</div>
+
+<script>
+const MAILTO = "service@finora.life"; // CrossRef / OpenAlex polite pool 用，禮貌性標示
+const $ = s => document.querySelector(s);
+let lastReport = "";
+
+const SAMPLE = `Smith, J. A., & Lee, K. (2020). Effects of early mobilization on critically ill patients: A randomized controlled trial. Journal of Clinical Nursing, 29(5), 812-820. https://doi.org/10.1111/jocn.15123
+Johnson, M. R., Patel, S., & Wong, L. (2022). Nurse-led interventions to reduce hospital-acquired pressure injuries: A systematic review. International Journal of Nursing Studies, 128, 104201. https://doi.org/10.1016/j.ijnurstu.2099.999999
+Anderson, P. (2018). The role of compassion fatigue in pediatric oncology nursing burnout. Advanced Nursing Quarterly, 14(2), 233-251. https://doi.org/10.1093/fakejourn/xyz.2018.0042
+World Health Organization. (2021). Global strategic directions for nursing and midwifery 2021-2025. WHO Press.`;
+
+// ---------- 解析 ----------
+// 判斷某行是否為「一筆新文獻的開頭」（而非上一筆的續行 / 說明文字）
+function isNewEntry(t){
+  if(/^[•·‧・◦▪*‣]/.test(t)) return true;          // 條列符號開頭
+  if(/^\[?\d{1,3}[\].)、]/.test(t)) return true;     // 1. / [1] / 1) / 1、
+  if(/(^|\D)(19|20)\d{2}(\D|$)/.test(t)) return true;// 含 4 位年份（引用必有年份）
+  if(/PMID|doi|10\.\d{4}/i.test(t)) return true;     // 含 PMID / DOI 識別碼
+  return false;
+}
+function isHeader(s){
+  // 去掉前綴：條列符號 / 數字 / 中文數字（七、）/ 標點
+  const t = s.replace(/^[\s•·‧・◦▪*‣\-–—📚🔖📖📑👉\d.、）)一二三四五六七八九十]+/u,"").trim();
+  return /^(參考文獻|參考資料|引用實證|引用文獻|引用書目|文獻列表|文獻|References?|Reference List|Bibliography|Works Cited)\s*[:：]?$/i.test(t);
+}
+// 一筆真文獻一定有作者/標題（很多文字）；純日期、純頁碼、編號殘段沒有 → 過濾掉
+function letterCount(s){ return (s.match(/[a-zA-Z一-鿿]/g)||[]).length; }
+function finalizeEntries(arr){
+  return arr.map(s=>s.replace(/\s+/g," ").trim())
+    .filter(s=>s.length>=10 && letterCount(s)>=6 && !isHeader(s)
+      && !/^[\d\s./、，,:：\-–—()（）]+$/.test(s));   // 純數字/日期/標點行直接剔除
+}
+// 編號清單的「條目開頭」標記：[1] / (1) / 1.1 / 1.1. / 1. / 12) / 條列符號
+// 數字限 1-2 位（避免把斷行後的頁碼「820.」誤判成新條目）
+const REF_MARKER = /^(\[\d+\]|\(\d+\)|\d{1,3}\.\d{1,3}\.?|\d{1,2}[.)]|[•·‧・◦▪*‣])\s*\S/;
+function splitRefs(raw){
+  const text = (raw||"").replace(/\r/g,"");
+  if(!text.trim()) return [];
+  const lines = text.split(/\n/).map(l=>l.trim()).filter(Boolean);
+
+  // 1) 編號清單優先：用編號當唯一分隔，PDF/Word 的斷行與空行造成的續行一律併回上一筆
+  if(lines.filter(l=>REF_MARKER.test(l)).length >= 2){
+    const entries = [];
+    for(const line of lines){
+      if(REF_MARKER.test(line)) entries.push(line);
+      else if(entries.length) entries[entries.length-1] += " " + line;
+      else entries.push(line);
+    }
+    return finalizeEntries(entries);
+  }
+
+  // 2) 無編號 → 空行分段（APA 換行型）：每段不論幾行都是一筆
+  const blocks = text.split(/\n\s*\n/).map(s=>s.trim()).filter(Boolean);
+  if(blocks.length > 1) return finalizeEntries(blocks);
+
+  // 3) 無編號無空行：逐行判斷，續行 / 說明文字併回上一筆
+  const entries = [];
+  for(const line of text.split(/\n/)){
+    if(!line.trim()) continue;
+    const indented = /^[ \t　]/.test(line);   // 行首有空白（含全形空格）→ 續行
+    if(entries.length && (indented || !isNewEntry(line.trim()))){
+      entries[entries.length-1] += " " + line.trim();
+    } else {
+      entries.push(line.trim());
+    }
+  }
+  return finalizeEntries(entries);
+}
+function extractDOIs(s){
+  const re = /10\.\d{4,9}\/[^\s"'<>,;)\]）】]+/ig; const out=[]; let m;
+  while((m=re.exec(s))) out.push(m[0].replace(/[.,;]+$/,""));
+  return [...new Set(out)];
+}
+function extractPMIDs(s){
+  const re = /PMID:?\s*(\d{6,9})/ig; const out=[]; let m;
+  while((m=re.exec(s))) out.push(m[1]);
+  return [...new Set(out)];
+}
+const STOP = new Set("the a an of in on for and to with from by as at is are be effects effect study trial review systematic randomized controlled patients nursing nurse care among versus during between after before using based analysis".split(/\s+/));
+function titleWords(t){
+  return (t||"").toLowerCase().replace(/[^a-z0-9\s]/g," ").split(/\s+/)
+    .filter(w=>w.length>3 && !STOP.has(w));
+}
+// 資料庫作者姓氏（family name）是否出現在原始引用字串中 → 判斷是否同一篇的關鍵訊號
+function authorMatch(authorsStr, refText){
+  if(!authorsStr) return false;
+  const ref = refText.toLowerCase();
+  return authorsStr.split(/,\s*/).map(s=>s.trim()).filter(s=>s.length>2)
+    .some(fam => ref.includes(fam.toLowerCase()));
+}
+// 回傳的標題 vs 原始引用字串 的詞彙重疊比例
+function overlapRatio(foundTitle, refText){
+  const tw = titleWords(foundTitle);
+  if(tw.length===0) return 0;
+  const ref = refText.toLowerCase();
+  let hit=0; for(const w of new Set(tw)) if(ref.includes(w)) hit++;
+  return hit / new Set(tw).size;
+}
+
+// ---------- 資料庫查詢 ----------
+async function crossrefByDOI(doi){
+  try{
+    const r = await fetch(`https://api.crossref.org/works/${encodeURIComponent(doi)}?mailto=${MAILTO}`);
+    if(r.status===404) return {status:"notfound"};
+    if(!r.ok) return {status:"error"};
+    const j = await r.json(); const m = j.message;
+    return {status:"ok", title:(m.title&&m.title[0])||"", year:(m["published"]?.["date-parts"]?.[0]?.[0])||(m.created?.["date-parts"]?.[0]?.[0]),
+      journal:(m["container-title"]&&m["container-title"][0])||"", url:`https://doi.org/${doi}`,
+      authors:(m.author||[]).map(a=>a.family).filter(Boolean).join(", ")};
+  }catch(e){ return {status:"error"}; }
+}
+async function crossrefSearch(refText){
+  try{
+    const q = encodeURIComponent(refText.slice(0,300));
+    const r = await fetch(`https://api.crossref.org/works?query.bibliographic=${q}&rows=3&mailto=${MAILTO}`);
+    if(!r.ok) return {status:"error"};
+    const j = await r.json(); const items = j.message.items||[];
+    if(!items.length) return {status:"empty"};
+    // 取重疊度最高者
+    let best=null, bestR=0;
+    for(const m of items){
+      const title=(m.title&&m.title[0])||"";
+      const ratio=overlapRatio(title, refText);
+      if(ratio>bestR){bestR=ratio; best=m;}
+    }
+    if(!best) return {status:"empty"};
+    const doi=best.DOI;
+    return {status:"ok", ratio:bestR, title:(best.title&&best.title[0])||"",
+      year:best["published"]?.["date-parts"]?.[0]?.[0], journal:(best["container-title"]&&best["container-title"][0])||"",
+      url:doi?`https://doi.org/${doi}`:best.URL, doi,
+      authors:(best.author||[]).map(a=>a.family).filter(Boolean).join(", ")};
+  }catch(e){ return {status:"error"}; }
+}
+// 直接用 PMID 查號（權威識別碼，等同 DOI）
+async function pubmedByPMID(pmid){
+  try{
+    const r = await fetch(`https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi?db=pubmed&retmode=json&id=${pmid}`);
+    if(!r.ok) return {status:"error"};
+    const j = await r.json(); const d = j.result?.[pmid];
+    if(!d || d.error) return {status:"notfound"};
+    const authors = (d.authors||[]).map(a=>(a.name||"").split(/\s+/)[0]).filter(Boolean).join(", ");
+    const year = (d.pubdate||"").match(/\d{4}/)?.[0];
+    return {status:"ok", title:d.title||"", year, journal:d.source||"", authors,
+      url:`https://pubmed.ncbi.nlm.nih.gov/${pmid}/`};
+  }catch(e){ return {status:"error"}; }
+}
+async function pubmedSearch(refText){
+  try{
+    const q = encodeURIComponent(refText.slice(0,250));
+    const r = await fetch(`https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&retmode=json&retmax=1&term=${q}`);
+    if(!r.ok) return null;
+    const j = await r.json();
+    const id = j.esearchresult?.idlist?.[0];
+    if(!id) return null;
+    const r2 = await fetch(`https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi?db=pubmed&retmode=json&id=${id}`);
+    const j2 = await r2.json(); const d = j2.result?.[id];
+    if(!d) return null;
+    return {title:d.title||"", id, url:`https://pubmed.ncbi.nlm.nih.gov/${id}/`};
+  }catch(e){ return null; }
+}
+
+// ---------- 核對單一識別碼（DOI 或 PMID） ----------
+async function verifyId(type, val, refText){
+  if(type==="doi"){
+    const cr = await crossrefByDOI(val);
+    if(cr.status==="notfound") return {level:"fake", id:val, found:null,
+      reason:`引用中的 DOI <code>${val}</code> 在 CrossRef 查無此編號——DOI 不存在，<b>高度疑似 AI 捏造</b>。`};
+    if(cr.status==="ok"){
+      const ratio=overlapRatio(cr.title,refText), authorOK=authorMatch(cr.authors,refText), yearOK=cr.year&&refText.includes(String(cr.year));
+      if(ratio>=0.45) return {level:"real", id:val, found:cr, reason:`DOI 有效，且指向的文獻標題與引用相符。`};
+      if(authorOK&&yearOK) return {level:"real", id:val, found:cr, reason:`DOI 有效，作者與年份皆吻合，確認為同一篇文獻。學生引用時把標題縮寫了（資料庫原始全名如下），<b>引用正確</b>。`};
+      if(authorOK||yearOK) return {level:"warn", id:val, found:cr, reason:`DOI <code>${val}</code> 真實存在，作者或年份其一吻合、但標題差異較大，請點開比對是否為同一篇（可能只是縮寫，也可能引用有誤）。`};
+      return {level:"warn", id:val, found:cr, reason:`DOI <code>${val}</code> 真實存在，但它指向的文獻<b>作者、年份、標題都對不上</b>——高度可能是 AI 把一個真 DOI 接到捏造的標題上，請務必點開比對。`};
+    }
+    return null; // 查詢出錯
+  } else {
+    const pm = await pubmedByPMID(val);
+    if(pm.status==="notfound") return {level:"fake", id:val, found:null,
+      reason:`引用中的 PMID <code>${val}</code> 在 PubMed 查無此編號——PMID 不存在，<b>高度疑似 AI 捏造</b>。`};
+    if(pm.status==="ok"){
+      const ratio=overlapRatio(pm.title,refText), authorOK=authorMatch(pm.authors,refText), yearOK=pm.year&&refText.includes(String(pm.year));
+      if(ratio>=0.45||(authorOK&&yearOK)) return {level:"real", id:val, found:pm, reason:`PMID 有效，作者與年份吻合，確認為真實文獻。${ratio<0.45?"（學生引用標題與資料庫全名略有出入，屬正常縮寫/翻譯）":""}`};
+      if(authorOK||yearOK) return {level:"warn", id:val, found:pm, reason:`PMID <code>${val}</code> 真實存在，但作者或年份僅其一吻合、標題差異較大，請點開比對是否為同一篇。`};
+      return {level:"warn", id:val, found:pm, reason:`PMID <code>${val}</code> 真實存在，但它指向的文獻<b>作者、年份、標題都對不上</b>——可能是 AI 把真 PMID 接到捏造內容上，請務必點開比對。`};
+    }
+    return null; // 查詢出錯
+  }
+}
+
+// ---------- 核對單筆 ----------
+// 把每一筆引用展開成「核對單元」：一個 PMID/DOI = 一篇 = 一張卡；無識別碼者整筆為一單元
+function buildUnits(refs){
+  const units=[];
+  refs.forEach((ref, ri)=>{
+    const ids=[...extractDOIs(ref).map(v=>["doi",v]), ...extractPMIDs(ref).map(v=>["pmid",v])];
+    if(ids.length){
+      ids.forEach(([t,v],k)=> units.push({refText:ref, type:t, val:v, group:ri, part:k+1, total:ids.length}));
+    }else{
+      units.push({refText:ref, type:null, val:null, group:ri, part:1, total:1});
+    }
+  });
+  return units;
+}
+// 核對單一單元
+async function verifyUnit(u){
+  if(u.type){
+    const r = await verifyId(u.type, u.val, u.refText);
+    if(r) return verdict(r.level, r.reason, r.found);
+    return verdict("warn", `識別碼 <code>${u.val}</code> 查詢時發生網路錯誤，請重試或人工確認。`, null);
+  }
+  return await verifyByTitle(u.refText); // 無 DOI/PMID → 標題搜尋
+}
+
+// OpenAlex：免費、涵蓋極廣（含部分中文期刊），用來補 CrossRef 查不到的洞
+async function openalexSearch(refText){
+  try{
+    const q = encodeURIComponent(searchQuery(refText).slice(0,250));
+    const r = await fetch(`https://api.openalex.org/works?search=${q}&per-page=3&mailto=${MAILTO}`);
+    if(!r.ok) return {status:"error"};
+    const items = (await r.json()).results||[];
+    if(!items.length) return {status:"empty"};
+    let best=null, bestR=0;
+    for(const m of items){
+      const ratio=overlapRatio(m.title||"", refText);
+      if(ratio>bestR){bestR=ratio; best=m;}
+    }
+    if(!best) return {status:"empty"};
+    return {status:"ok", ratio:bestR, title:best.title||"",
+      year:best.publication_year, journal:best.primary_location?.source?.display_name||"",
+      url:best.doi || best.id, authors:(best.authorships||[]).map(a=>a.author?.display_name).filter(Boolean).join(", ")};
+  }catch(e){ return {status:"error"}; }
+}
+// 無識別碼時：用標題搜尋 CrossRef → OpenAlex → PubMed
+async function verifyByTitle(refText){
+  const cs = await crossrefSearch(refText);
+  let pub = null;
+  try{ pub = await pubmedSearch(refText); }catch(e){}
+
+  if(cs.status==="ok" && cs.ratio>=0.6){
+    return verdict("real", `在 CrossRef 找到高度相符的文獻（標題吻合度約 ${Math.round(cs.ratio*100)}%）。`, cs, pub);
+  }
+  // CrossRef 沒把握 → 問 OpenAlex（涵蓋更廣，常能救回中文/冷門期刊）
+  const oa = await openalexSearch(refText);
+  if(oa.status==="ok" && oa.ratio>=0.6){
+    return verdict("real", `在 OpenAlex 找到高度相符的文獻（標題吻合度約 ${Math.round(oa.ratio*100)}%）。`, oa, pub);
+  }
+  if(cs.status==="ok" && cs.ratio>=0.35){
+    return verdict("warn", `找到部分相符的文獻（CrossRef 吻合度約 ${Math.round(cs.ratio*100)}%），但不完全一致，請人工確認是否為同一篇。`, cs, pub);
+  }
+  if(oa.status==="ok" && oa.ratio>=0.35){
+    return verdict("warn", `找到部分相符的文獻（OpenAlex 吻合度約 ${Math.round(oa.ratio*100)}%），但不完全一致，請人工確認是否為同一篇。`, oa, pub);
+  }
+  if(pub){
+    return verdict("warn", `CrossRef／OpenAlex 未找到明確相符，但 PubMed 有一筆可能相關的文獻，請人工確認。`, null, pub);
+  }
+  // 三大資料庫都查不到
+  return verdict("fake", `CrossRef、OpenAlex 與 PubMed 皆查無相符文獻。若為英文國際期刊，<b>高度疑似捏造</b>；若為中文期刊則需人工查證（見下方提醒）。`, null);
+}
+function verdict(level, reason, found, pub, founds){
+  return {level, reason, found, pub, founds};
+}
+function renderFound(f){
+  if(!f || !f.title) return "";
+  let h = `<div class="found">📄 資料庫實際文獻：<b>${escapeHtml(f.title)}</b>`;
+  if(f.authors) h += `<br>作者：${escapeHtml(f.authors)}`;
+  if(f.journal) h += `　${escapeHtml(f.journal)}`;
+  if(f.year) h += `（${f.year}）`;
+  if(f.url) h += `<br>🔗 <a href="${f.url}" target="_blank">${f.url}</a>`;
+  return h + `</div>`;
+}
+
+// ---------- 渲染 ----------
+const LABEL = {real:"✅ 真實文獻", warn:"⚠️ 需人工確認", fake:"❌ 查無此文獻（疑似捏造）", pending:"⏳ 核對中…"};
+function renderItem(i, unit, res){
+  const refText = unit.refText;
+  const lv = res ? res.level : "pending";
+  let html = `<div class="item ${lv}" id="item-${i}">`;
+  html += `<span class="badge ${lv}">${LABEL[lv]}</span>`;
+  if(unit.total>1){
+    html += `<span class="badge pending" style="margin-left:6px">本條第 ${unit.part}/${unit.total} 篇 · ${unit.type==="doi"?"DOI":"PMID"} ${escapeHtml(unit.val)}</span>`;
+  }
+  html += `<div class="ref-text">${escapeHtml(refText)}</div>`;
+  if(res){
+    html += `<div class="reason">${res.reason}</div>`;
+    if(res.founds && res.founds.length){
+      html += res.founds.map(renderFound).join("");      // 多篇（一筆含多個識別碼）
+    } else {
+      html += renderFound(res.found);                    // 單篇
+    }
+    if(res.pub){
+      html += `<div class="found">🧬 PubMed 可能相關：<b>${escapeHtml(res.pub.title)}</b><br>🔗 <a href="${res.pub.url}" target="_blank">${res.pub.url}</a></div>`;
+    }
+    // 待確認 / 疑似捏造 → 提供一鍵人工查證連結（特別是國際資料庫查不到的中文期刊）
+    if(res.level==="warn" || res.level==="fake"){
+      const q = encodeURIComponent(searchQuery(refText));
+      html += `<div class="found">🔎 一鍵人工查證（中文期刊請優先用華藝）：
+        <a href="https://www.airitilibrary.com/Search/alSearchKeyword?key=${q}" target="_blank">華藝線上圖書館</a> ｜
+        <a href="https://scholar.google.com/scholar?q=${q}" target="_blank">Google Scholar</a> ｜
+        <a href="https://www.google.com/search?q=${q}" target="_blank">Google</a>
+        <br><span style="color:var(--muted)">查證後：找得到原文 → 文獻屬實；完全找不到、或學生提不出原文 PDF/連結 → 判定造假。</span></div>`;
+    }
+  }
+  html += `</div>`;
+  return html;
+}
+function escapeHtml(s){return (s||"").replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));}
+// 從引用字串萃取乾淨的查詢字串（去掉網址、DOI、PMID、條列符號與說明性標點）
+function searchQuery(refText){
+  return refText
+    .replace(/https?:\/\/\S+/g," ")
+    .replace(/10\.\d{4,9}\/[^\s]+/g," ")
+    .replace(/PMID:?\s*\d+/ig," ")
+    .replace(/^[\s•·\-–—\[\]()\d\.、]+/,"")
+    .replace(/[【】\[\]（）():：，。；、]/g," ")
+    .replace(/\s+/g," ").trim().slice(0,80);
+}
+
+// ---------- 主流程 ----------
+async function run(){
+  const refs = splitRefs($("#input").value);
+  if(!refs.length){ alert("請先貼上參考文獻。"); return; }
+  const units = buildUnits(refs);   // 一個 PMID/DOI = 一篇 = 一張卡
+  $("#run").disabled = true; $("#copy").style.display="none";
+  const prog = $("#prog"); prog.classList.add("on"); prog.firstElementChild.style.width="0";
+
+  const results = new Array(units.length).fill(null);
+  // 先畫出全部 pending
+  $("#out").innerHTML = `<div class="summary" id="sum"></div>` + units.map((u,i)=>renderItem(i,u,null)).join("");
+  updateSummary(results, units.length);
+
+  for(let i=0;i<units.length;i++){
+    let res;
+    try{ res = await verifyUnit(units[i]); }
+    catch(e){ res = verdict("warn","核對時發生網路錯誤，請重試或人工確認。",null); }
+    results[i]=res;
+    $("#item-"+i).outerHTML = renderItem(i, units[i], res);
+    updateSummary(results, units.length);
+    prog.firstElementChild.style.width = Math.round((i+1)/units.length*100)+"%";
+    await new Promise(r=>setTimeout(r,250)); // 對資料庫禮貌
+  }
+  prog.classList.remove("on");
+  $("#run").disabled = false;
+  buildReport(units, results);
+  $("#copy").style.display="inline-block";
+}
+function updateSummary(results, total){
+  let real=0,warn=0,fake=0;
+  for(const r of results){ if(!r)continue; if(r.level==="real")real++; else if(r.level==="warn")warn++; else fake++; }
+  $("#sum").innerHTML = `
+    <div class="sumbar">
+      <span class="total">共 <b>${total}</b> 篇文獻</span>
+      <span class="divider"></span>
+      <span class="seg"><span class="dot real"></span><b>${real}</b> 真實</span>
+      <span class="seg"><span class="dot warn"></span><b>${warn}</b> 待確認</span>
+      <span class="seg"><span class="dot fake"></span><b>${fake}</b> 疑似捏造</span>
+    </div>`;
+}
+function buildReport(units, results){
+  let lines = ["文獻來源核對報告","產生時間："+new Date().toLocaleString("zh-TW"),"="];
+  units.forEach((u,i)=>{
+    const res=results[i];
+    const tag = u.total>1 ? `（本條第 ${u.part}/${u.total} 篇 · ${u.type==="doi"?"DOI":"PMID"} ${u.val}）` : "";
+    lines.push(`\n[${i+1}] ${LABEL[res.level]}${tag}`);
+    lines.push("原引用："+u.refText);
+    lines.push("判定："+res.reason.replace(/<[^>]+>/g,""));
+    const founds = (res.founds&&res.founds.length)?res.founds:(res.found?[res.found]:[]);
+    founds.forEach(f=>{ if(f&&f.title) lines.push("資料庫文獻："+f.title+(f.url?" / "+f.url:"")); });
+  });
+  lastReport = lines.join("\n");
+}
+
+// ---------- 上傳作業：Word / PDF / TXT → 抽參考文獻 ----------
+if(window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+
+async function docxToText(buf){ const r = await mammoth.extractRawText({arrayBuffer:buf}); return r.value||""; }
+async function pdfToText(buf){
+  const pdf = await pdfjsLib.getDocument({data:buf}).promise;
+  let text="";
+  for(let p=1;p<=pdf.numPages;p++){
+    const page=await pdf.getPage(p);
+    const content=await page.getTextContent();
+    text += content.items.map(it=>it.str).join(" ")+"\n";
+  }
+  return text;
+}
+// 從整份作業全文，抽出「參考文獻」那一段
+function extractRefsSection(fullText){
+  const lines = fullText.replace(/\r/g,"").split(/\n/);
+  let idx=-1;
+  for(let i=0;i<lines.length;i++){
+    const t=lines[i].replace(/^[\s\d.、）)一二三四五六七八九十]+/,"").trim();   // 去「七、」等前綴
+    if(/^(參考文獻|參考資料|引用文獻|引用書目|References?|Reference List|Bibliography|Works Cited)\s*[:：]?\s*$/i.test(t)) idx=i;
+  }
+  if(idx>=0) return lines.slice(idx+1).join("\n").trim();
+  // 找不到標題 → 只挑含年份/DOI/PMID 的行（過濾掉正文段落）
+  return lines.filter(l=>/(^|\D)(19|20)\d{2}(\D|$)|10\.\d{4}|PMID/i.test(l)).join("\n");
+}
+
+$("#upload").onclick = ()=> $("#file").click();
+$("#file").onchange = async (e)=>{
+  const f = e.target.files[0]; if(!f) return;
+  const msg = $("#upmsg");
+  msg.style.color = "var(--muted)"; msg.textContent = `讀取「${f.name}」中…`;
+  try{
+    const buf = await f.arrayBuffer();
+    let full;
+    if(/\.docx$/i.test(f.name)) full = await docxToText(buf);
+    else if(/\.pdf$/i.test(f.name)) full = await pdfToText(buf);
+    else full = new TextDecoder("utf-8").decode(buf);
+    const refsText = extractRefsSection(full);
+    $("#input").value = refsText;
+    const n = splitRefs(refsText).length;
+    if(n===0){
+      msg.style.color = "var(--amber)";
+      msg.textContent = `⚠️ 從「${f.name}」沒抽到參考文獻。可能是掃描型 PDF（無文字層）或沒有「參考文獻」標題——請手動把參考文獻貼進上方框。`;
+    }else{
+      msg.style.color = "var(--green)";
+      msg.textContent = `✅ 已從「${f.name}」抽出約 ${n} 筆候選文獻並填入上方框，請確認內容後按「開始核對」。`;
+    }
+  }catch(err){
+    msg.style.color = "var(--red)";
+    msg.textContent = `讀取失敗：${err.message}。請改用「複製貼上」方式。`;
+  }
+  e.target.value=""; // 允許重複上傳同檔
+};
+
+$("#run").onclick = run;
+$("#sample").onclick = ()=>{ $("#input").value = SAMPLE; $("#upmsg").textContent=""; };
+$("#copy").onclick = ()=>{ navigator.clipboard.writeText(lastReport).then(()=>{$("#copy").textContent="✅ 已複製";setTimeout(()=>$("#copy").textContent="📋 複製報告",1500);}); };
+
+// ---------- 通用彈窗（關於 / 聯絡我們 / 隱私權政策 / 服務條款）----------
+function openModal(id, e){ if(e) e.preventDefault(); const m=document.getElementById(id); if(!m) return; m.classList.add("open"); document.body.style.overflow="hidden"; }
+function closeModal(m){ m.classList.remove("open"); document.body.style.overflow=""; }
+document.querySelectorAll("[data-modal]").forEach(t=> t.onclick = (e)=>openModal(t.getAttribute("data-modal"), e));
+document.querySelectorAll(".modal-overlay").forEach(ov=>{
+  ov.addEventListener("click", e=>{ if(e.target===ov) closeModal(ov); });           // 點背景關閉
+  ov.querySelectorAll(".modal-dismiss").forEach(b=> b.onclick=()=>closeModal(ov));    // × 與「我瞭解了」
+});
+document.addEventListener("keydown", e=>{ if(e.key==="Escape") document.querySelectorAll(".modal-overlay.open").forEach(closeModal); });
+// 若網址帶 #about / #contact / #privacy / #terms（從別站連來）自動開啟
+if(/^#(about|contact|privacy|terms)$/.test(location.hash)) openModal(location.hash.slice(1));
+</script>
+</body>
+</html>
