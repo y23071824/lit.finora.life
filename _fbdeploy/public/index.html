@@ -693,6 +693,25 @@ function citedFirstAuthorOf(refText){
   const m=(refText||"").replace(/^[\s\d.、）)\[\]【】（]+/,"").match(/^([A-Za-zÀ-ÿ'’\-]{2,})/);
   return m?m[1]:null;
 }
+// 編輯距離（Levenshtein）：用來辨識「同一個姓被拼錯一兩個字母」
+function levenshtein(a,b){
+  a=a||""; b=b||""; const m=a.length,n=b.length;
+  if(!m) return n; if(!n) return m;
+  let prev=Array.from({length:n+1},(_,i)=>i), cur=new Array(n+1);
+  for(let i=1;i<=m;i++){ cur[0]=i;
+    for(let j=1;j<=n;j++){ const cost=a[i-1]===b[j-1]?0:1; cur[j]=Math.min(prev[j]+1,cur[j-1]+1,prev[j-1]+cost); }
+    [prev,cur]=[cur,prev];
+  }
+  return prev[n];
+}
+// 「疑似拼字差異的同一姓氏」：差 1~2 個字母才算，且只對長度 ≥5 的姓做模糊，避免把 Chen/Chan、Lee/Li、Wong/Wang 這些不同人的短姓混為一談
+function nearSurname(a,b){
+  if(!a||!b) return false;
+  a=a.toLowerCase().trim(); b=b.toLowerCase().trim();
+  if(a===b) return true;
+  if(Math.min(a.length,b.length)<5) return false;
+  return levenshtein(a,b)<=2;
+}
 // 年份比對：候選年份任一吻合即可，並容忍 ±1 年。
 // 線上搶先發表(epubdate)常比正式期刊號(pubdate)早一年，引用寫的多半是線上年——只比 pubdate 會誤殺真文獻。
 function yearMatch(years, refText){
@@ -706,15 +725,22 @@ function yearMatch(years, refText){
 // 找到一筆「編號真實存在」的紀錄後：判 verified（標題/作者/年份對得上，含交叉提醒）或 inconsistent（內容對不上＝高造假訊號）
 function idMatchVerdict(rec, val, refText, idLabel, viaOpenAlex){
   const ratio=overlapRatio(rec.title,refText), authorOK=authorMatch(rec.authors,refText), yearOK=yearMatch(rec.years||[rec.year], refText);
-  if(ratio>=0.45 || (authorOK&&yearOK) || hasLittleContent(refText)){
+  const cy=citedYearOf(refText);
+  const cand=(rec.years && rec.years.length ? rec.years : (rec.year?[rec.year]:[])).map(String);
+  const dy=rec.year?String(rec.year):(cand[0]||null);
+  const cfa=citedFirstAuthorOf(refText), dfa=((rec.authors||"").split(/,\s*/)[0]||"").split(/\s+/).pop()||"";
+  // 年份吻合、作者只差 1~2 個字母 → 幾乎一定是「對的論文 + 拼錯作者」，不是造假。
+  // （標題常是中文 vs 英文，overlapRatio≈0，光靠標題救不回，必須補這條路）
+  const authorTypo = yearOK && !authorOK && cfa && /^[A-Za-z]/.test(dfa) && nearSurname(cfa,dfa);
+  if(ratio>=0.45 || (authorOK&&yearOK) || authorTypo || hasLittleContent(refText)){
     let note="";
-    const cy=citedYearOf(refText);
-    const cand=(rec.years && rec.years.length ? rec.years : (rec.year?[rec.year]:[])).map(String);
-    const dy=rec.year?String(rec.year):(cand[0]||null);
     // 只有當引用年份「連任一候選年份都對不上」才提醒（命中 epub/pubdate/sortpub 任一即視為相符，不嘮叨）
     if(cy && dy && !cand.includes(cy)) note+=`（提醒：引用年份 ${cy}，資料庫為 ${dy}，請核對）`;
-    const cfa=citedFirstAuthorOf(refText), dfa=((rec.authors||"").split(/,\s*/)[0]||"").split(/\s+/).pop()||"";
-    if(cfa && /^[A-Za-z]/.test(dfa) && !sameSurname(cfa,dfa)) note+=`（提醒：第一作者與資料庫不符，請核對）`;
+    if(cfa && /^[A-Za-z]/.test(dfa) && !sameSurname(cfa,dfa)){
+      note += authorTypo
+        ? `（提醒：第一作者你寫「${cfa}」，資料庫為「${dfa}」，疑似拼字差異，請核對）`
+        : `（提醒：第一作者與資料庫不符，請核對）`;
+    }
     const base = hasLittleContent(refText)
       ? `${idLabel} 有效，指向以下文獻（引用未附作者/標題，但 ${idLabel} 本身<b>真實存在</b>）。`
       : (viaOpenAlex
@@ -722,8 +748,14 @@ function idMatchVerdict(rec, val, refText, idLabel, viaOpenAlex){
           : `${idLabel} 有效，且指向的文獻與引用相符。`);
     return {level:"verified", id:val, found:rec, reason:base+note};
   }
+  // 走到這代表沒有任何一條夠強的肯定線索。誠實列出「實際」對不上的欄位，別硬說「作者年份標題全部對不上」
+  // （標題跨語言時 overlapRatio 不可靠，不據此宣稱「標題不符」，避免誤導）。
+  const bits=[];
+  if(cfa && /^[A-Za-z]/.test(dfa) && !sameSurname(cfa,dfa)) bits.push(`作者（你寫「${cfa}」，資料庫第一作者為「${dfa}」）`);
+  if(cy && !yearOK) bits.push(`年份（你寫 ${cy}，資料庫為 ${rec.year||"未標示"}）`);
+  const detail = bits.length ? `下列資訊對不上：${bits.join("；")}` : `指向的文獻內容與你的引用對不上`;
   return {level:"inconsistent", id:val, found:rec,
-    reason:`這個 ${idLabel} <code>${val}</code> <b>真實存在</b>，但它指向的文獻<b>作者、年份、標題都跟你的引用對不上</b>——很可能是把一個真編號接到不符的引用上，請務必點開比對。`};
+    reason:`這個 ${idLabel} <code>${val}</code> <b>真實存在</b>，但${detail}——可能是把一個真編號接到不符的引用上，或引用本身有誤，請務必點開比對。`};
 }
 async function verifyId(type, val, refText){
   if(type==="doi"){
