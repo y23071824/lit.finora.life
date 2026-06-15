@@ -509,14 +509,17 @@ function titleWords(t){
 function authorMatch(authorsStr, refText){
   if(!authorsStr) return false;
   const ref = refText.toLowerCase();
-  return authorsStr.split(/,\s*/).map(s=>s.trim()).filter(s=>s.length>2)
+  return authorsStr.split(/,\s*/).map(s=>s.trim()).filter(Boolean)
     .some(fam => {
       const f = fam.toLowerCase();
-      // 拉丁姓氏用「整詞」比對（詞邊界），避免「Ren」誤中「adheRENce」這種巧合子字串
-      if(/^[a-z'’\-]+$/.test(f)){
-        return new RegExp("(^|[^a-z])"+f.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")+"([^a-z]|$)").test(ref);
+      // 拉丁姓氏（含重音字 à-ÿ，如 Thøgersen/Coelho-Júnior）用「整詞」比對（詞邊界），
+      // 避免「Ren」誤中「adheRENce」這種巧合子字串。
+      // 允許 2 字姓氏（Ng/Wu/Hu/Xu/Yu/Ho/Lu… 東亞姓氏極常見）——有詞邊界保護不會誤中；只擋掉 1 字（那是縮寫）。
+      if(/^[a-zà-ÿ'’\-]+$/.test(f)){
+        if(f.length < 2) return false;
+        return new RegExp("(^|[^a-zà-ÿ])"+f.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")+"([^a-zà-ÿ]|$)").test(ref);
       }
-      return ref.includes(f);   // 中文等姓氏無詞邊界概念，用包含即可
+      return f.length >= 2 && ref.includes(f);   // 中文等姓氏無詞邊界，用包含；1 字姓氏太易巧合，要求至少 2 字
     });
 }
 // 標題是否「夠長夠 specific」才足以當作「確認是同一篇」的證據
@@ -687,7 +690,7 @@ function looksLikeJournalArticle(citation){
 function sameSurname(a,b){ return !!a && !!b && a.toLowerCase().trim()===b.toLowerCase().trim(); }
 function citedYearOf(refText){ const m=(refText||"").match(/(?:19|20)\d{2}/); return m?m[0]:null; }
 function citedFirstAuthorOf(refText){
-  const m=(refText||"").replace(/^[\s\d.、）)\[\]【】（]+/,"").match(/^([A-Za-z'’\-]{2,})/);
+  const m=(refText||"").replace(/^[\s\d.、）)\[\]【】（]+/,"").match(/^([A-Za-zÀ-ÿ'’\-]{2,})/);
   return m?m[1]:null;
 }
 // 年份比對：候選年份任一吻合即可，並容忍 ±1 年。
